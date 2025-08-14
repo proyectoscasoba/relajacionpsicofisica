@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Relajación Guiada</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module" src="https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js"></script>
+    <script type="module" src="https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js"></script>
+    <script type="module" src="https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #e0f2f1 0%, #b2dfdb 100%);
+        }
+        .container {
+            max-width: 90%;
+            margin: 0 auto;
+        }
+        .text-overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+        .hidden {
+            display: none;
+        }
+        .disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen p-4">
+
+    <div class="container bg-white bg-opacity-80 p-8 rounded-xl shadow-2xl backdrop-blur-sm transition-all duration-500 ease-in-out">
+        <div id="intro-screen" class="text-center transition-opacity duration-500">
+            <h1 class="text-4xl md:text-5xl font-bold text-teal-800 mb-4">Relajación Guiada</h1>
+            <p class="text-lg text-teal-700 mb-8">
+                Elige un nivel para comenzar tu viaje hacia la calma.
+            </p>
+            <div id="level-buttons" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                </div>
+            <p class="text-xs text-gray-500 mt-4">ID de usuario: <span id="user-id-display">Cargando...</span></p>
+            <div id="loading-firebase" class="text-teal-600 mt-4">Cargando progreso...</div>
+            <div id="firestore-error" class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-lg hidden" role="alert">
+                <p class="font-bold">Error en la base de datos</p>
+                <p>No se pudo cargar el progreso del usuario. Por favor, recarga la página.</p>
+            </div>
+        </div>
+
+        <div id="session-screen" class="hidden text-center transition-opacity duration-500 relative">
+            <h2 id="session-title" class="text-3xl md:text-4xl font-bold text-teal-800 mb-4"></h2>
+            <p id="days-progress" class="text-lg text-teal-600 mb-2"></p>
+            <p id="instruction-display" class="text-xl md:text-2xl text-teal-700 font-light mb-8"></p>
+            <div class="flex items-center justify-center space-x-4 mb-4">
+                <button onclick="restartSession()" class="px-8 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-xl shadow-lg font-semibold transform hover:scale-105 transition-all duration-300">
+                    Reiniciar Sesión
+                </button>
+                <button id="pause-button" onclick="pauseSession()" class="px-8 py-3 bg-gray-500 hover:bg-gray-600 text-white rounded-xl shadow-lg font-semibold transform hover:scale-105 transition-all duration-300">
+                    Pausar
+                </button>
+                <button id="resume-button" onclick="resumeSession()" class="px-8 py-3 bg-green-500 hover:bg-green-600 text-white rounded-xl shadow-lg font-semibold transform hover:scale-105 transition-all duration-300 hidden">
+                    Continuar
+                </button>
+                <button onclick="stopSession()" class="px-8 py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl shadow-lg font-semibold transform hover:scale-105 transition-all duration-300">
+                    Terminar Sesión
+                </button>
+            </div>
+            <p id="loading-text" class="text-teal-600 mt-4 hidden">Cargando audio, por favor espera...</p>
+            <div id="audio-error" class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-lg hidden" role="alert">
+                <p class="font-bold">Error de audio</p>
+                <p>No se pudo reproducir el audio. Por favor, inténtalo de nuevo.</p>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        // TU CONFIGURACIÓN DE FIREBASE ESTÁ BIEN AQUÍ.
+        const firebaseConfig = {
+          apiKey: "AIzaSyDUAjMbI_BxFNYcOZk_ymGGmIn0AaGux_0",
+          authDomain: "relajacionpsicofisica.firebaseapp.com",
+          projectId: "relajacionpsicofisica",
+          storageBucket: "relajacionpsicofisica.firebasestorage.app",
+          messagingSenderId: "780688584944",
+          appId: "1:780688584944:web:5e31ec9b6521f06909d235"
+        };
+
+        // Diccionario de scripts de relajación.
+        const relaxationScripts = {
+            '5': {
+                title: "Relajación Nivel 1",
+                script: "Siéntate o acuéstate en una posición cómoda. Cierra suavemente los ojos. Dirige tu atención a tu respiración. No intentes cambiarla, solo obsérvala. Nota el aire fresco al entrar por tu nariz y el aire cálido al salir. Inhala, exhala. Inhala, exhala. Lentamente, comienza a hacer tus exhalaciones un poco más largas que tus inhalaciones. Tómate un momento para sentir cómo tu cuerpo se calma con cada respiración. Inhala por cuatro segundos, y exhala por seis. Repite. Y ahora, simplemente vuelve a tu respiración natural. Quédate aquí por un momento en este estado de calma. Cuando estés listo, abre los ojos lentamente y regresa al presente."
+            },
+            '10': {
+                title: "Relajación Nivel 2",
+                script: "Acuéstate boca arriba, con los brazos y las piernas ligeramente separados. Cierra los ojos. Vamos a escanear tu cuerpo. Comienza por los dedos de los pies. Siente cualquier sensación: hormigueo, calor, frío. Mueve tu atención a tus pies, a tus tobillos, a tus pantorrillas y a tus rodillas. Siente el peso de tu cuerpo sobre la superficie que te sostiene. Ahora, relaja tus muslos y tus caderas. Dirige tu atención a tu abdomen y tu pecho. Siente el suave movimiento de tu respiración. Relaja los hombros. Permite que tus brazos y tus manos se vuelvan pesados. Por último, relaja tu cuello, tu mandíbula y tus músculos faciales. Permanece en esta sensación de relajación profunda. Y ahora, cuando lo desees, mueve suavemente los dedos de tus manos y de tus pies, estira tu cuerpo y abre los ojos."
+            },
+            '15': {
+                title: "Relajación Nivel 3",
+                script: "Toma una posición cómoda y cierra los ojos. Imagina tu lugar seguro. Este es un lugar donde te sientes completamente en paz y seguro. Puede ser un lugar que conozcas o un lugar que imagines. Obsérvalo. ¿Qué ves? Quizás un bosque, una playa, una pradera. ¿Qué olores percibes? Tal vez el olor a pino o a sal. ¿Qué sonidos escuchas? Quizás el sonido de las olas o el canto de los pájaros. ¿Qué sensaciones tienes en la piel? Tal vez el sol cálido o una brisa suave. Permítete quedarte en este lugar por un momento. No tienes nada que hacer ni adónde ir. Solo estás aquí, seguro y en paz. Siente la tranquilidad llenando cada parte de tu ser. Y ahora, lentamente, trae tu conciencia de vuelta a la habitación, sabiendo que siempre puedes regresar a este lugar seguro en tu mente."
+            },
+            '20': {
+                title: "Relajación Nivel 4",
+                script: "Siéntate en una posición cómoda o acuéstate. Cierra los ojos suavemente. Dirige tu atención a tu corazón. Respira profundamente. Con cada inhalación, imagina una luz cálida y pacífica llenando tu pecho. Con cada exhalación, libera cualquier tensión. Repite, Inhala paz, exhala tensión. Ahora, comienza a dirigir esa energía pacífica a ti mismo. Repite en tu mente: Que yo esté libre de sufrimiento. Que yo sea feliz y en paz. Que yo sea fuerte y saludable. Que yo esté libre de estrés. Ahora, piensa en alguien a quien amas profundamente. Dirígele tus deseos: Que tú estés libre de sufrimiento. Que tú seas feliz y en paz. Que tú seas fuerte y saludable. Que tú estés libre de estrés. Piensa en alguien neutral, como un vecino o un colega, y envíales tus buenos deseos. Finalmente, dirige tus deseos a todos los seres, sin distinción. Que todos los seres estén libres de sufrimiento. Que todos los seres sean felices y en paz. Que todos los seres sean fuertes y saludables. Que todos los seres estén libres de estrés. Permanece en silencio, sintiendo esta conexión. Ahora, suavemente, trae tu atención de vuelta a tu respiración. Cuando estés listo, abre los ojos lentamente."
+            },
+            '30': {
+                title: "Relajación Nivel 5",
+                script: "Siéntate o acuéstate cómodamente, con las manos apoyadas en tus piernas o a los lados. Cierra los ojos. Vamos a tomar unos momentos para centrarnos. Inhala profundamente, sintiendo tu abdomen expandirse. Exhala lentamente, soltando cualquier tensión. Repite esto dos veces más. Ahora, regresa a tu respiración natural, sin controlarla. Siente el aire al entrar y salir por la nariz. Con cada respiración, te vuelves más presente. Ahora, expande tu consciencia a las sensaciones de tu cuerpo. Siente el contacto de tus pies con el suelo, o de tu cuerpo con la superficie en la que descansas. Mueve tu atención lentamente por cada parte de tu cuerpo, desde los pies hasta la cabeza. Permanece en la sensación. Si tu mente divaga, no te preocupes. Simplemente, con gentileza, tráela de vuelta a la sensación física de tu cuerpo. Ahora, vamos a estar en silencio por un tiempo. Permítete simplemente ser, en este estado de presencia y calma. Disfruta de la quietud. <silent_moment> Y ahora, lentamente, regresa al momento presente. Mueve suavemente los dedos de tus manos y de tus pies. Cuando estés listo, abre los ojos."
+            }
+        };
+
+        // UI Elements
+        const introScreen = document.getElementById('intro-screen');
+        const sessionScreen = document.getElementById('session-screen');
+        const sessionTitle = document.getElementById('session-title');
+        const daysProgressDisplay = document.getElementById('days-progress');
+        const instructionDisplay = document.getElementById('instruction-display');
+        const loadingText = document.getElementById('loading-text');
+        const audioError = document.getElementById('audio-error');
+        const pauseButton = document.getElementById('pause-button');
+        const resumeButton = document.getElementById('resume-button');
+        const levelButtonsContainer = document.getElementById('level-buttons');
+        const loadingFirebase = document.getElementById('loading-firebase');
+        const firestoreError = document.getElementById('firestore-error');
+        const userIdDisplay = document.getElementById('user-id-display');
+
+        // Firebase variables
+        let db;
+        let auth;
+        let userId;
+        let userProgress = {
+            currentLevel: 1,
+            daysCompleted: 0,
+            lastCompletionDate: null,
+        };
+
+        // Audio variables
+        let audioPlayer = new Audio();
+        let isPaused = false;
+        let currentSessionKey = null;
+        let audioPromise = Promise.resolve(); // Promise to chain audio playback
+        // ⭐ Agregado: un objeto para almacenar el audio en caché
+        let audioCache = {};
+
+
+        
+        // Corrección aquí: Simplificamos la inicialización de Firebase
+        const initFirebase = async () => {
+            try {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                
+                const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+                
+                const unsubscribe = onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        userIdDisplay.textContent = userId;
+                        await loadUserProgress();
+                        loadingFirebase.classList.add('hidden');
+                        unsubscribe();
+                    } else {
+                        try {
+                            if (initialAuthToken) {
+                                await signInWithCustomToken(auth, initialAuthToken);
+                            } else {
+                                await signInAnonymously(auth);
+                            }
+                        } catch (e) {
+                            console.error("Error al iniciar sesión anónimamente:", e);
+                            firestoreError.classList.remove('hidden');
+                            loadingFirebase.classList.add('hidden');
+                        }
+                    }
+                });
+
+            } catch (error) {
+                console.error("Error al inicializar o autenticar Firebase:", error);
+                firestoreError.classList.remove('hidden');
+                userIdDisplay.textContent = "Error";
+                loadingFirebase.classList.add('hidden');
+            }
+        };
+        
+        // Corrección aquí: Usamos el appId de tu configuración.
+        const loadUserProgress = async () => {
+            if (!userId) return; 
+            const progressRef = doc(db, `artifacts/${firebaseConfig.appId}/users/${userId}/relaxationProgress/progress`);
+            try {
+                const docSnap = await getDoc(progressRef);
+                if (docSnap.exists()) {
+                    userProgress = docSnap.data();
+                } else {
+                    await setDoc(progressRef, userProgress);
+                }
+                updateLevelButtons();
+            } catch (error) {
+                console.error("Error al cargar el progreso:", error);
+                firestoreError.classList.remove('hidden');
+            }
+        };
+
+        const saveUserProgress = async () => {
+            if (!userId) return;
+            const progressRef = doc(db, `artifacts/${firebaseConfig.appId}/users/${userId}/relaxationProgress/progress`);
+            try {
+                await setDoc(progressRef, userProgress);
+                console.log("Progreso guardado con éxito.");
+            } catch (error) {
+                console.error("Error al guardar el progreso:", error);
+            }
+        };
+
+        // UI Rendering Logic
+        const updateLevelButtons = () => {
+            levelButtonsContainer.innerHTML = '';
+            const levels = Object.keys(relaxationScripts);
+            levels.forEach((level, index) => {
+                const levelNumber = index + 1;
+                const isDisabled = levelNumber > userProgress.currentLevel;
+                const daysInfo = levelNumber === userProgress.currentLevel
+                    ? `(${userProgress.daysCompleted} de 7 días)`
+                    : '';
+                
+                const button = document.createElement('button');
+                button.textContent = `${relaxationScripts[level].title} ${daysInfo}`;
+                button.classList.add('p-6', 'text-white', 'rounded-xl', 'shadow-lg', 'transform', 'hover:scale-105', 'transition-all', 'duration-300', 'font-semibold');
+                button.setAttribute('onclick', `startSession('${level}')`);
+                
+                if (isDisabled) {
+                    button.classList.add('bg-gray-400', 'cursor-not-allowed', 'disabled');
+                    button.disabled = true;
+                } else {
+                    const colorClasses = ['bg-teal-600', 'bg-cyan-600', 'bg-indigo-600', 'bg-purple-600', 'bg-orange-600'];
+                    button.classList.add(colorClasses[index % colorClasses.length], 'hover:bg-opacity-80');
+                }
+                levelButtonsContainer.appendChild(button);
+            });
+        };
+
+        // Audio Utilities
+        const pcmToWav = (pcmData, sampleRate) => {
+            const numChannels = 1;
+            const bytesPerSample = 2;
+            const buffer = new ArrayBuffer(44 + pcmData.length * bytesPerSample);
+            const view = new DataView(buffer);
+            let offset = 0;
+
+            const writeString = (str) => {
+                for (let i = 0; i < str.length; i++) {
+                    view.setUint8(offset++, str.charCodeAt(i));
+                }
+            };
+
+            writeString('RIFF');
+            view.setUint32(offset, 36 + pcmData.length * bytesPerSample, true);
+            offset += 4;
+            writeString('WAVE');
+            writeString('fmt ');
+            view.setUint32(offset, 16, true);
+            offset += 4;
+            view.setUint16(offset, 1, true);
+            offset += 2;
+            view.setUint16(offset, numChannels, true);
+            offset += 2;
+            view.setUint32(offset, sampleRate, true);
+            offset += 4;
+            view.setUint32(offset, sampleRate * numChannels * bytesPerSample, true);
+            offset += 4;
+            view.setUint16(offset, numChannels * bytesPerSample, true);
+            offset += 2;
+            view.setUint16(offset, bytesPerSample * 8, true);
+            offset += 2;
+            writeString('data');
+            view.setUint32(offset, pcmData.length * bytesPerSample, true);
+            offset += 4;
+
+            for (let i = 0; i < pcmData.length; i++) {
+                view.setInt16(offset, pcmData[i], true);
+                offset += 2;
+            }
+
+            return new Blob([view], { type: 'audio/wav' });
+        };
+
+        const base64ToArrayBuffer = (base64) => {
+            const binaryString = atob(base64);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            return bytes.buffer;
+        };
+
+        const playAudio = (audioData, mimeType) => {
+            return new Promise((resolve, reject) => {
+                try {
+                    const sampleRateMatch = mimeType.match(/rate=(\d+)/);
+                    if (!sampleRateMatch) {
+                        throw new Error("No se pudo encontrar la tasa de muestreo en mimeType");
+                    }
+                    const sampleRate = parseInt(sampleRateMatch[1], 10);
+                    const pcmData = base64ToArrayBuffer(audioData);
+                    const pcm16 = new Int16Array(pcmData);
+                    const wavBlob = pcmToWav(pcm16, sampleRate);
+                    const audioUrl = URL.createObjectURL(wavBlob);
+                    
+                    audioPlayer.src = audioUrl;
+                    audioPlayer.onended = () => {
+                        resolve();
+                    };
+                    audioPlayer.onerror = (e) => {
+                        console.error("Error de reproducción de audio:", e);
+                        reject(e);
+                    };
+                    
+                    audioPromise = audioPromise.then(() => {
+                        return new Promise((res, rej) => {
+                            audioPlayer.play().then(() => {
+                                console.log("Audio iniciado con éxito.");
+                                res();
+                            }).catch(e => {
+                                console.error("Error al iniciar la reproducción del audio:", e);
+                                rej(e);
+                            });
+                        });
+                    });
+
+                    audioPromise.catch(e => console.error("Error en la promesa de audio:", e));
+                } catch (error) {
+                    console.error("Error durante la preparación del audio:", error);
+                    reject(error);
+                }
+            });
+        };
+
+        // Session Control
+        window.startSession = async (sessionKey) => {
+            const script = relaxationScripts[sessionKey];
+            if (!script) {
+                console.error("Script no encontrado para la sesión:", sessionKey);
+                return;
+            }
+            
+            const levelFromKey = { '5': 1, '10': 2, '15': 3, '20': 4, '30': 5 }[sessionKey];
+            if (levelFromKey > userProgress.currentLevel) {
+                console.log("Este nivel aún está bloqueado.");
+                return;
+            }
+
+            currentSessionKey = sessionKey;
+            
+            try {
+                isPaused = false;
+                
+                introScreen.classList.add('hidden');
+                sessionScreen.classList.remove('hidden');
+                sessionTitle.textContent = script.title;
+                daysProgressDisplay.textContent = `Día ${userProgress.daysCompleted} de 7`;
+                instructionDisplay.textContent = "Iniciando tu sesión de relajación...";
+                loadingText.classList.remove('hidden');
+                audioError.classList.add('hidden');
+                pauseButton.classList.remove('hidden');
+                resumeButton.classList.add('hidden');
+
+                // ⭐ Cambio principal: Revisar si el audio ya está en caché
+                let audioData, mimeType;
+                if (audioCache[sessionKey]) {
+                    console.log("Usando audio desde la caché.");
+                    ({ audioData, mimeType } = audioCache[sessionKey]);
+                } else {
+                    console.log("Generando audio con la API de Gemini.");
+                    const scriptParts = script.script.split('<silent_moment>');
+                    const textToSpeak = scriptParts[0];
+
+                    const payload = {
+                        contents: [{
+                            parts: [{ text: textToSpeak }]
+                        }],
+                        generationConfig: {
+                            responseModalities: ["AUDIO"],
+                            speechConfig: {
+                                voiceConfig: {
+                                    prebuiltVoiceConfig: { voiceName: "Puck" }
+                                }
+                            }
+                        },
+                        model: "gemini-2.5-flash-preview-tts"
+                    };
+                    
+                    // =========================================================
+                    //
+                    //  👉 ¡¡¡ PASO CRÍTICO: PEGA TU CLAVE DE LA API AQUÍ !!! 👈
+                    //  
+                    //  La clave que obtuviste de Google (entre las comillas)
+                    //
+                    // =========================================================
+                    const apiKey = "AIzaSyA99hUc8Pj1LECXmVnyuDZfFaEOWF6oK54";
+                    
+                    if (!apiKey) {
+                        throw new Error("No se ha proporcionado una API Key para Gemini. Por favor, revisa el código y pega tu clave.");
+                    }
+
+                    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`;
+                    
+                    let retryCount = 0;
+                    const maxRetries = 3;
+
+                    const fetchWithRetry = async () => {
+                        try {
+                            const response = await fetch(apiUrl, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(payload)
+                            });
+                            if (!response.ok) {
+                                throw new Error(`HTTP error! status: ${response.status}`);
+                            }
+                            return response.json();
+                        } catch (error) {
+                            if (retryCount < maxRetries) {
+                                retryCount++;
+                                const delay = Math.pow(2, retryCount) * 1000;
+                                console.warn(`Fetch failed, retrying in ${delay}ms...`);
+                                await new Promise(resolve => setTimeout(resolve, delay));
+                                return fetchWithRetry();
+                            }
+                            throw error;
+                        }
+                    };
+
+                    const result = await fetchWithRetry();
+
+                    const part = result?.candidates?.[0]?.content?.parts?.[0];
+                    audioData = part?.inlineData?.data;
+                    mimeType = part?.inlineData?.mimeType;
+                    // ⭐ Agregado: Almacenar el audio en la caché
+                    audioCache[sessionKey] = { audioData, mimeType };
+                }
+
+                
+                if (audioData && mimeType && mimeType.startsWith("audio/")) {
+                    loadingText.classList.add('hidden');
+                    instructionDisplay.textContent = "Sesión en curso... Sigue las instrucciones de la voz.";
+                    await playAudio(audioData, mimeType);
+
+                    const scriptParts = script.script.split('<silent_moment>');
+                    if (scriptParts[1]) {
+                        instructionDisplay.textContent = "Momento de silencio... permanece en la quietud.";
+                        const textToSpeak2 = scriptParts[1];
+                        const secondPayload = {
+                            contents: [{
+                                parts: [{ text: textToSpeak2 }]
+                            }],
+                            generationConfig: {
+                                responseModalities: ["AUDIO"],
+                                speechConfig: {
+                                    voiceConfig: {
+                                        prebuiltVoiceConfig: { voiceName: "Puck" }
+                                    }
+                                }
+                            },
+                        };
+
+                        const secondResponse = await fetch(apiUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(secondPayload)
+                        });
+                        const secondResult = await secondResponse.json();
+                        const secondPart = secondResult?.candidates?.[0]?.content?.parts?.[0];
+                        const secondAudioData = secondPart?.inlineData?.data;
+                        const secondMimeType = secondPart?.inlineData?.mimeType;
+
+                        if (secondAudioData) {
+                            await playAudio(secondAudioData, secondMimeType);
+                        }
+                    }
+
+                    instructionDisplay.textContent = "Sesión finalizada. Gracias.";
+                    await trackSessionCompletion();
+                    updateLevelButtons();
+
+                } else {
+                    throw new Error("No se pudo obtener el audio de la API.");
+                }
+
+            } catch (error) {
+                console.error("Error al obtener o reproducir el audio:", error);
+                loadingText.classList.add('hidden');
+                audioError.classList.remove('hidden');
+                instructionDisplay.textContent = "Algo salió mal. Por favor, inténtalo de nuevo.";
+            } finally {
+            }
+        };
+
+        const trackSessionCompletion = async () => {
+            const today = new Date().toISOString().split('T')[0];
+            const levelFromKey = { '5': 1, '10': 2, '15': 3, '20': 4, '30': 5 }[currentSessionKey];
+            
+            if (userProgress.currentLevel === levelFromKey && userProgress.lastCompletionDate !== today) {
+                userProgress.daysCompleted++;
+                userProgress.lastCompletionDate = today;
+
+                if (userProgress.daysCompleted >= 7) {
+                    userProgress.currentLevel++;
+                    userProgress.daysCompleted = 0;
+                    if (userProgress.currentLevel > 5) {
+                        instructionDisplay.textContent += " ¡Has completado todos los niveles! ¡Felicidades!";
+                        userProgress.currentLevel = 5;
+                    } else {
+                        const nextLevelKey = Object.keys(relaxationScripts)[userProgress.currentLevel - 1];
+                        instructionDisplay.textContent += ` ¡Has desbloqueado el ${relaxationScripts[nextLevelKey].title}!`;
+                    }
+                }
+                await saveUserProgress();
+            }
+        };
+        
+        window.restartSession = () => {
+            if (audioPlayer && audioPlayer.played) {
+                 audioPlayer.pause();
+                 audioPlayer.currentTime = 0;
+            }
+            if (currentSessionKey) {
+                stopSession();
+                setTimeout(() => startSession(currentSessionKey), 500); 
+            }
+        };
+
+        window.pauseSession = () => {
+            if (audioPlayer) {
+                audioPlayer.pause();
+                isPaused = true;
+                pauseButton.classList.add('hidden');
+                resumeButton.classList.remove('hidden');
+            }
+        };
+
+        window.resumeSession = () => {
+            if (audioPlayer && isPaused) {
+                audioPlayer.play().catch(e => {
+                    console.error("Error al reanudar la reproducción del audio:", e);
+                });
+                isPaused = false;
+                resumeButton.classList.add('hidden');
+                pauseButton.classList.remove('hidden');
+            }
+        };
+
+        window.stopSession = () => {
+            if (audioPlayer) {
+                audioPlayer.pause();
+                audioPlayer.src = "";
+            }
+            sessionScreen.classList.add('hidden');
+            introScreen.classList.remove('hidden');
+            instructionDisplay.textContent = "";
+            loadingText.classList.add('hidden');
+            audioError.classList.add('hidden');
+            updateLevelButtons();
+        };
+
+        // Initialize on page load
+        initFirebase();
+    </script>
+</body>
+</html>
